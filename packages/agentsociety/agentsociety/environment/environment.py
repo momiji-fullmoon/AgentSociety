@@ -720,11 +720,20 @@ class EnvironmentStarter(Environment):
 
         self._last_metric_tick = self._tick
 
-        return [
+        metrics = [
             ("num_completed_trips", num_completed_trips, self._tick),
             ("total_travel_time (sec)", total_travel_time, self._tick),
             ("total_travel_distance (m)", total_travel_distance, self._tick),
         ]
+
+        try:
+            from ..bridge.monitor import bridge_monitor
+
+            metrics.extend(bridge_monitor.get_metric_tuples(self._tick))
+        except Exception as exc:  # pragma: no cover - defensive guardrail
+            get_logger().debug(f"Failed to collect bridge metrics: {exc}")
+
+        return metrics
 
 
 def _generate_yaml_config(map_file) -> str:

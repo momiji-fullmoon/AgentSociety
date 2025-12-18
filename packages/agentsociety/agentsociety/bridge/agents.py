@@ -20,6 +20,7 @@ from ..tools.bridge_tools import (
     propose_repair_actions,
     schedule_overdue_inspections,
 )
+from .monitor import bridge_monitor
 
 
 class BridgeTaskOutput(BlockOutput):
@@ -123,6 +124,13 @@ class InspectionRouteBlock(Block):
         records = await self.agent.memory.status.get("bridge_inventory", [])
         risky = filter_bridges_by_condition(records, max_condition_score=4)
         backlog = schedule_overdue_inspections(risky)
+        day, sim_time = self.agent.toolbox.environment.get_datetime()
+        bridge_monitor.record_backlog(
+            backlog,
+            day=day,
+            t=float(sim_time),
+            step=self.agent.toolbox.environment.get_tick(),
+        )
         route_plan: list[dict[str, Any]] = []
         for entry in backlog:
             bridge = entry["bridge"]
@@ -155,6 +163,13 @@ class ConditionReasoningBlock(Block):
         else:
             candidate_records = await self.agent.memory.status.get("bridge_inventory", [])
         proposals = propose_repair_actions(candidate_records)
+        day, sim_time = self.agent.toolbox.environment.get_datetime()
+        bridge_monitor.record_inspection_findings(
+            proposals,
+            day=day,
+            t=float(sim_time),
+            step=self.agent.toolbox.environment.get_tick(),
+        )
         output = BridgeTaskOutput(
             route_plan=route_output.route_plan if route_output else None,
             inspection_backlog=route_output.inspection_backlog if route_output else None,
@@ -181,6 +196,16 @@ class RepairDispatchBlock(Block):
         dispatches: list[Message] = []
         for idx, proposal in enumerate(proposals):
             target = crew_contacts[idx % len(crew_contacts)] if crew_contacts else None
+            day, sim_time = self.agent.toolbox.environment.get_datetime()
+            bridge_monitor.record_intervention(
+                proposal.get("bridge", {}),
+                priority=str(proposal.get("priority")) if proposal.get("priority") else None,
+                action=str(proposal.get("recommended_action")) if proposal.get("recommended_action") else None,
+                assigned_to=target,
+                day=day,
+                t=float(sim_time),
+                step=self.agent.toolbox.environment.get_tick(),
+            )
             dispatches.append(
                 Message(
                     from_id=self.agent.id,
@@ -245,6 +270,15 @@ class CrewActionBlock(Block):
                     "requested_by": msg.from_id,
                 }
             )
+        if tasks:
+            day, sim_time = self.agent.toolbox.environment.get_datetime()
+            for task in tasks:
+                bridge_monitor.record_work_order_status(
+                    task,
+                    day=day,
+                    t=float(sim_time),
+                    step=self.agent.toolbox.environment.get_tick(),
+                )
         output = BridgeTaskOutput(dispatches=repair_messages, repair_proposals=tasks)
         agent_context.latest_output = output
         return output

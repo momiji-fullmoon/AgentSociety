@@ -33,6 +33,24 @@ const LAND_USE_NAME = new Map<string, string>([
     ['LAND_USE_TYPE_OTHER', '其他土地'],
 ]);
 
+const BRIDGE_COLORS: Record<string, [number, number, number, number]> = {
+    critical: [220, 53, 69, 220],
+    inProgress: [255, 165, 0, 220],
+    default: [52, 152, 219, 200],
+};
+
+const bridgeStatusColor = (priority?: string, workOrderStatus?: string): [number, number, number, number] => {
+    const normalizedPriority = priority?.toLowerCase();
+    const normalizedStatus = workOrderStatus?.toLowerCase();
+    if (normalizedStatus && normalizedStatus.includes('progress')) {
+        return BRIDGE_COLORS.inProgress;
+    }
+    if (normalizedPriority === 'critical') {
+        return BRIDGE_COLORS.critical;
+    }
+    return BRIDGE_COLORS.default;
+};
+
 
 const Deck = observer((props: {
     style: React.CSSProperties,
@@ -43,6 +61,8 @@ const Deck = observer((props: {
     const [hovering, setHovering] = useState(false);
 
     let layers = [];
+
+    const bridgeOverlays = store.bridgeOverlays ?? [];
 
     // const aoiLayers = props.showAoi ? [new GeoJsonLayer({
     //     id: 'aoi',
@@ -196,6 +216,37 @@ const Deck = observer((props: {
         layers = [heatmapLayer, ...layers];
     }
 
+    const bridgePoints = bridgeOverlays.filter(b => b.lng !== undefined && b.lat !== undefined);
+    if (bridgePoints.length > 0) {
+        const bridgeLayer = new ScatterplotLayer({
+            id: 'bridge-status',
+            data: bridgePoints,
+            pickable: true,
+            radiusScale: 20,
+            radiusMinPixels: 6,
+            radiusMaxPixels: 200,
+            getPosition: d => [d.lng, d.lat],
+            getRadius: d => (d.priority?.toLowerCase() === 'critical' ? 180 : 140),
+            getFillColor: d => bridgeStatusColor(d.priority, d.work_order_status),
+            getLineColor: [0, 0, 0, 120],
+            stroked: true,
+            lineWidthMinPixels: 1,
+        });
+        const bridgeLabelLayer = new TextLayer({
+            id: 'bridge-status-label',
+            data: bridgePoints,
+            getText: d => d.name ?? d.bridge_id,
+            getPosition: d => [d.lng, d.lat],
+            getSize: 12,
+            getColor: [40, 40, 40, 255],
+            getBackgroundColor: [255, 255, 255, 220],
+            getPixelOffset: [0, 16],
+            background: true,
+            pickable: true,
+        });
+        layers = [...layers, bridgeLayer, bridgeLabelLayer];
+    }
+
     const mapCenter = store.mapCenter;
 
     return <div style={props.style} onContextMenu={evt => evt.preventDefault()}>
@@ -223,6 +274,21 @@ const Deck = observer((props: {
             getTooltip={({ object, layer }) => {
                 if (!object || !layer) {
                     return null;
+                }
+                if (layer.id === 'bridge-status' || layer.id === 'bridge-status-label') {
+                    const info = object as any;
+                    const header = info.name ?? info.bridge_id;
+                    const statusLine = info.work_order_status ? `${info.status ?? 'work_order'} - ${info.work_order_status}` : (info.status ?? 'work_order');
+                    const due = info.days_overdue !== undefined ? `Overdue: ${info.days_overdue} days` : (info.due_date ? `Due: ${info.due_date}` : '');
+                    const risk = info.priority ? `Priority: ${info.priority}` : '';
+                    return {
+                        html: `<b>${header}</b><br/>${statusLine}<br/>${risk}<br/>${info.action ?? ''}<br/>${due}`,
+                        style: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                            color: 'white',
+                            padding: '6px 8px',
+                        },
+                    };
                 }
                 if (layer.id === 'aoi') {
                     const name = object.properties?.name;

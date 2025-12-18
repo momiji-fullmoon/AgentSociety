@@ -7,6 +7,7 @@ from .agents import (
     MaintenanceSchedulerAgent,
     BridgeTaskOutput,
 )
+from .monitor import bridge_monitor
 
 __all__ = [
     "BridgeInspectorAgent",
@@ -15,4 +16,5 @@ __all__ = [
     "FieldCrewAgent",
     "MaintenanceSchedulerAgent",
     "BridgeTaskOutput",
+    "bridge_monitor",
 ]

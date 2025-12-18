@@ -1,5 +1,5 @@
 import { makeAutoObservable, runInAction } from "mobx";
-import { Agent, AgentDialog, AgentProfile, AgentStatus, AgentSurvey, LngLat, Time, ApiMetric } from "./components/type";
+import { Agent, AgentDialog, AgentProfile, AgentStatus, AgentSurvey, LngLat, Time, ApiMetric, BridgeOverlay, BridgeTimelineLog } from "./components/type";
 import { message } from "antd";
 import React from "react";
 import { Experiment, Survey } from "../../components/type";
@@ -45,6 +45,9 @@ export class ReplayStore {
     _clickedAgentDialogs: AgentDialog[] = []
     _clickedAgentSurveys: AgentSurvey[] = []
     _metrics: Map<string, ApiMetric[]> = new Map()
+    bridgeOverlays: BridgeOverlay[] = []
+    bridgeInterventions: BridgeTimelineLog[] = []
+    bridgeInspections: BridgeTimelineLog[] = []
 
     _id2surveys: Map<string, Survey> = new Map()
 
@@ -274,6 +277,28 @@ export class ReplayStore {
         }
     }
 
+    async _fetchBridgeStatus(time?: Time) {
+        if (this.expID === undefined) {
+            return
+        }
+        try {
+            let url = `/api/experiments/${this.expID}/bridge-status`
+            if (time !== undefined) {
+                url += `?day=${time.day}&t=${time.t}`
+            }
+            const res = await fetchCustom(url)
+            const data = await res.json()
+            runInAction(() => {
+                this.bridgeOverlays = data.data?.overlays ?? []
+                this.bridgeInterventions = data.data?.interventions ?? []
+                this.bridgeInspections = data.data?.inspections ?? []
+            })
+        } catch (err) {
+            message.error(`Failed to fetch bridge overlays: ${JSON.stringify(err)}`, 3);
+            console.error('Failed to fetch bridge overlays: ', err);
+        }
+    }
+
     get metrics() {
         return this._metrics
     }
@@ -293,10 +318,14 @@ export class ReplayStore {
             this._agent2Profile = new Map()
             this.agents = new Map()
             this._metrics = new Map()
+            this.bridgeOverlays = []
+            this.bridgeInterventions = []
+            this.bridgeInspections = []
         } else {
             await this._fetchExperiment()
             await this._fetchAgentProfile()
             await this._fetchMetrics()
+            await this._fetchBridgeStatus()
             if (this.experiment?.status === 2) {
                 // completed -> fetch the newest data
                 await this._fetchAllAgentStatusAndPrompt(this._currentTime)
@@ -316,6 +345,7 @@ export class ReplayStore {
         await this._fetchAllAgentStatusAndPrompt(time)
         await this._fetchClickedAgent()
         await this._fetchMetrics()
+        await this._fetchBridgeStatus(time)
     }
 
     // 获取最新的experiment数据，刷新所有数据，如果有clickedAgentID，也刷新clickedAgentID的数据
