@@ -51,6 +51,7 @@ class LLMProviderType(str, Enum):
     SiliconFlow = "siliconflow"
     VolcEngine = "volcengine"
     VLLM = "vllm"
+    AzureOpenAI = "azure"
 
 
 class LLMConfig(BaseModel):
@@ -68,6 +69,9 @@ class LLMConfig(BaseModel):
     model: str = Field(...)
     """The model to use"""
 
+    api_version: Optional[str] = Field(None)
+    """API version for the provider (used by Azure OpenAI)"""
+
     concurrency: int = Field(200, ge=1)
     """Concurrency value for LLM operations to avoid rate limit"""
 
@@ -80,8 +84,17 @@ class LLMConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_configuration(self):
-        if self.provider != LLMProviderType.VLLM and self.base_url is not None:
+        if (
+            self.provider
+            not in [LLMProviderType.VLLM, LLMProviderType.AzureOpenAI, LLMProviderType.OpenAI]
+            and self.base_url is not None
+        ):
             raise ValueError("base_url is not supported for this provider")
+        if self.provider == LLMProviderType.AzureOpenAI:
+            if self.base_url is None:
+                raise ValueError("Azure OpenAI requires `base_url` to be set")
+            if self.api_version is None:
+                raise ValueError("Azure OpenAI requires `api_version` to be set")
         return self
 
 
@@ -161,12 +174,17 @@ class LLMActor:
             "output_tokens": 0,
         }
 
-        client = AsyncOpenAI(
-            api_key=config.api_key,
-            timeout=config.timeout,
-            base_url=config.base_url,
-            http_client=self._http_client,
-        )
+        client_kwargs = {
+            "api_key": config.api_key,
+            "timeout": config.timeout,
+            "base_url": config.base_url,
+            "http_client": self._http_client,
+        }
+        if config.provider == LLMProviderType.AzureOpenAI:
+            client_kwargs["default_headers"] = {"api-key": config.api_key}
+            if config.api_version is not None:
+                client_kwargs["default_query"] = {"api-version": config.api_version}
+        client = AsyncOpenAI(**client_kwargs)
         for attempt in range(retries):
             response = None
             try:
@@ -290,6 +308,10 @@ class LLM:
                 base_url = "https://api.siliconflow.cn/v1"
             elif config.provider == LLMProviderType.VLLM:
                 ...
+            elif config.provider == LLMProviderType.AzureOpenAI:
+                if base_url is None:
+                    raise ValueError("Azure OpenAI requires `base_url` to be set")
+                base_url = f"{base_url}/openai/deployments/{config.model}"
             elif config.provider == LLMProviderType.ZhipuAI:
                 base_url = "https://open.bigmodel.cn/api/paas/v4/"
             elif config.provider == LLMProviderType.VolcEngine:
