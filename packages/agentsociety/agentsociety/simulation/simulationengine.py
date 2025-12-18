@@ -241,6 +241,12 @@ class SimulationEngine:
 
         # simulation context - for information dump
         self.context = {}
+        try:
+            from ..bridge.monitor import bridge_monitor
+
+            bridge_monitor.reset()
+        except Exception as exc:  # pragma: no cover - defensive guardrail
+            get_logger().debug(f"Failed to reset bridge monitor: {exc}")
 
         # filter base
         self._filter_base = {}
@@ -1344,6 +1350,12 @@ class SimulationEngine:
 
     def _save_context(self):
         fs_client = self._config.env.fs_client
+        try:
+            from ..bridge.monitor import bridge_monitor
+
+            self.context["bridge_monitor"] = bridge_monitor.export_state()
+        except Exception as exc:  # pragma: no cover - defensive guardrail
+            get_logger().debug(f"Failed to export bridge monitor state: {exc}")
         json_bytes = json.dumps(self.context, indent=2, ensure_ascii=False).encode(
             "utf-8"
         )

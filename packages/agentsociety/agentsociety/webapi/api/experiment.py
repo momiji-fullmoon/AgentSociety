@@ -8,7 +8,7 @@ import zipfile
 from typing import List, cast, Dict, Tuple
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +50,18 @@ async def _find_started_experiment_by_id(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Experiment not running"
         )
     return exp
+
+
+def _load_bridge_artifacts(request: Request, tenant_id: str, exp_id: uuid.UUID) -> dict:
+    fs_client = request.app.state.env.fs_client
+    artifacts_path = f"exps/{tenant_id}/{exp_id}/artifacts.json"
+    artifacts_data = fs_client.download(artifacts_path)
+    if not artifacts_data:
+        return {}
+    try:
+        return json.loads(artifacts_data)
+    except Exception:
+        return {}
 
 
 @router.get("/experiments")
@@ -271,6 +283,64 @@ async def get_experiment_metrics_by_id(
         metrics_by_key[row[0]].append(api_metric)
 
     return True, metrics_by_key
+
+
+def _filter_by_time(entries: list[dict], day: int | None, t: float | None) -> list[dict]:
+    if day is None or t is None:
+        return entries
+
+    filtered: list[dict] = []
+    for entry in entries:
+        stamp = entry.get("last_update", entry)
+        entry_day = stamp.get("day")
+        entry_t = stamp.get("t")
+        try:
+            if entry_day is None or entry_t is None:
+                filtered.append(entry)
+                continue
+            if int(entry_day) < int(day) or (int(entry_day) == int(day) and float(entry_t) <= float(t)):
+                filtered.append(entry)
+        except (TypeError, ValueError):
+            filtered.append(entry)
+    return filtered
+
+
+@router.get("/experiments/{exp_id}/bridge-status")
+async def get_bridge_status(
+    request: Request,
+    exp_id: uuid.UUID,
+    day: int | None = Query(None),
+    t: float | None = Query(None),
+) -> ApiResponseWrapper[dict]:
+    """Return bridge overlays, interventions, and inspection logs for visualization."""
+
+    tenant_id = await request.app.state.get_tenant_id(request)
+    async with request.app.state.get_db() as db:
+        db = cast(AsyncSession, db)
+        stmt = select(Experiment).where(
+            Experiment.tenant_id.in_([tenant_id, "", "default"]), Experiment.id == exp_id
+        )
+        result = await db.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found"
+            )
+
+    artifacts = _load_bridge_artifacts(request, tenant_id, exp_id)
+    bridge_state = artifacts.get("bridge_monitor", {}) if artifacts else {}
+
+    overlays = bridge_state.get("work_orders", []) if isinstance(bridge_state, dict) else []
+    inspections = bridge_state.get("inspections", []) if isinstance(bridge_state, dict) else []
+    interventions = bridge_state.get("interventions", []) if isinstance(bridge_state, dict) else []
+
+    return ApiResponseWrapper(
+        data={
+            "overlays": _filter_by_time(overlays, day, t),
+            "inspections": _filter_by_time(inspections, day, t),
+            "interventions": _filter_by_time(interventions, day, t),
+        }
+    )
 
 
 def serialize_metrics(

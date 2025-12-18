@@ -49,3 +49,31 @@ export interface ApiMetric {
     value: number;
     step: number;
 }
+
+export interface BridgeOverlay {
+    bridge_id: string;
+    name?: string;
+    priority?: string;
+    risk?: string;
+    status?: string;
+    work_order_status?: string;
+    action?: string;
+    due_date?: string;
+    days_overdue?: number;
+    lng?: number;
+    lat?: number;
+    last_update?: { day?: number; t?: number; step?: number };
+}
+
+export interface BridgeTimelineLog {
+    bridge_id: string;
+    day?: number;
+    t?: number;
+    priority?: string;
+    risk?: string;
+    due_date?: string;
+    days_overdue?: number;
+    action?: string;
+    response_steps?: number;
+    assigned_to?: number;
+}
