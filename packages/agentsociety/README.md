@@ -85,6 +85,27 @@ Get started with AgentSociety in just a few minutes!
 To get started quickly, please refer to the `examples` folder in the repository. It contains sample scripts and configurations to help you understand how to create and use agents in an urban simulation environment.
 Check our online document for detailed usage tutorial: [AgentSociety Document](https://agentsociety.readthedocs.io/en/latest/index.html).
 
+## 🧭 Implementation Plan: Bridge Maintenance Scenario
+
+We plan to use the [National Bridge Inventory Element Data](https://geodata.bts.gov/maps/bd1b6ee967134ea68fac351cef461b5e) to build a bridge-maintenance simulation that drives inspection and repair behaviors for agents.
+
+### Data ingestion and normalization
+- Fetch geospatial attributes and maintenance metrics via the BTS feature service, storing raw GeoJSON/Parquet snapshots in a new `data/bridge_inventory/` directory for reproducibility.
+- Normalize key fields (structure ID, state, county, element codes, condition ratings, inspection dates) into tabular form using a script under `scripts/bridge_ingestion.py`, emitting cleaned CSV and a JSON schema summary for downstream tasks.
+
+### Environment modeling
+- Add a map-based environment configuration under `examples/bridge_maintenance/env_config.yaml` describing bridge nodes, their geolocations, and attributes (traffic, condition scores, material, last inspection).
+- Expose bridge condition and traffic modifiers as environment-sensing signals that agents can query to prioritize interventions.
+
+### Agent behaviors and tools
+- Create specialized agent roles (inspector, maintenance scheduler, field crew) with profiles that leverage the cleaned bridge records as shared memory.
+- Implement tool adapters that let agents filter bridges by risk/condition, schedule inspections based on overdue dates, and propose repair actions; place these utilities in `packages/agentsociety/tools/bridge_tools.py`.
+- Use multi-head workflows so inspectors plan routes, reason about condition codes, and dispatch repair requests to crews via the message layer.
+
+### Evaluation and visualization
+- Record intervention logs and inspection outcomes to evaluate response time, backlog reduction, and risk mitigation over simulation runs.
+- Extend the interactive visualization to overlay bridge statuses on the map, highlighting critical structures and ongoing work orders.
+
 <a id="contributing"></a>
 ## 🤝 Contributing
 We welcome contributions from the community!
